@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+		<meta http-equiv="Cross-Origin-Embedder-Policy" content="require-corp">
+		<meta http-equiv="Cross-Origin-Opener-Policy" content="same-origin">
+    </head>
+    <body>
+        <canvas id="canvas" oncontextmenu="event.preventDefault()"></canvas>
+        <script type='text/javascript'>
+            var Module = {
+                canvas: (function() { return document.getElementById('canvas'); })(),
+            };
+        </script>
+		<button class="sendButton" id="uploadButton" onclick="document.getElementById('fileUpload').click();">Load Rom</button>
+		<input type="file" id='fileUpload' class="sendButton" style="visibility: hidden; display: none;"/>
+		<input type="text" id="cmd_args" placeholder="Enter arguments separated by a comma"/>
+        <script src="azahar.js"></script>
+        <p>Status: <span id="status_text">Do not use CIA files, they are unsupported</span></p>
+		
+    </body>
+<script>
+var status_text = document.getElementById("status_text");
+
+function LoadRom(file_data) {
+	var game_path = "/home/web_user/game.cxi";
+	status_text.innerHTML = "Please wait, your game is being uploaded";
+	console.log("Uploading: ", file_data);
+	FS.writeFile(game_path, new Uint8Array(file_data));
+	status_text.innerHTML = "Finished uploading";
+	var cmd_args = document.getElementById("cmd_args").value.split(",");
+	if (cmd_args.length === 1 && cmd_args[0].length === 0) {
+		cmd_args.pop();
+	}
+	cmd_args.unshift("azahar.wasm");
+	cmd_args.push(game_path);
+	console.log(cmd_args);
+	Module._main(cmd_args.length, cmd_args);
+	status_text.innerHTML = "";
+}
+
+function ReadFileUpload(e) {
+	const file = e.files[0];
+	const reader = new FileReader();
+	reader.onload = (f) => {
+		//let maxSize = 2**21;
+		//const convToMb = e => Math.floor(Number(e)/100000)/10;
+		//if (byteSize(f.target.result) > maxSize) {
+		//	alert("Error: File size is greater than max (" + convToMb(maxSize) + "mb). String Encoded Size: " + convToMb(byteSize(f.target.result)) + "mb");
+		//	return;
+		//}
+		//currentUpload = btoa(file.name) + "%" + f.target.result;
+		//uploadButton.style.backgroundColor = "blue";
+		//uploadButton.style.color = "white";
+		LoadRom(f.target.result);
+	};
+	
+	if (file !== undefined)
+		reader.readAsArrayBuffer(file);
+	else {
+		//uploadButton.style = null;
+		//currentUpload = null;
+	}
+}
+
+document.getElementById("fileUpload").addEventListener("change", (e) => {
+	ReadFileUpload(e.target);
+}, false);
+</script>
+</html>

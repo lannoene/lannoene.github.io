@@ -5,7 +5,6 @@
         <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
     </head>
     <body>
-		<script src="sw.js"></script>
         <canvas id="canvas" oncontextmenu="event.preventDefault()"></canvas>
         <script type='text/javascript'>
             var Module = {
@@ -17,10 +16,12 @@
 		<input type="text" id="cmd_args" placeholder="Enter arguments separated by a comma"/>
         <script src="azahar.js"></script>
         <p>Status: <span id="status_text">Do not use CIA files, they are unsupported</span></p>
+        <div style="height: 500px; overflow: auto;"><br><span id="log_text"></span></div>
 		
     </body>
 <script>
 var status_text = document.getElementById("status_text");
+var log_text = document.getElementById("log_text");
 
 function LoadRom(file_data) {
 	var game_path = "/home/web_user/game.cxi";
@@ -28,14 +29,14 @@ function LoadRom(file_data) {
 	console.log("Uploading: ", file_data);
 	FS.writeFile(game_path, new Uint8Array(file_data));
 	status_text.innerHTML = "Finished uploading";
-	var cmd_args = document.getElementById("cmd_args").value.split(",");
+	var cmd_args = document.getElementById("cmd_args").value.split(/\s+/);
 	if (cmd_args.length === 1 && cmd_args[0].length === 0) {
 		cmd_args.pop();
 	}
-	cmd_args.unshift("azahar.wasm");
 	cmd_args.push(game_path);
+    cmd_args.push("-s"); // force software rendering
 	console.log(cmd_args);
-	Module._main(cmd_args.length, cmd_args);
+	callMain(cmd_args);
 	status_text.innerHTML = "";
 }
 

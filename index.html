@@ -16,32 +16,45 @@
 		<input type="file" id='fileUpload' class="sendButton" style="visibility: hidden; display: none;"/>
 		<input type="text" id="cmd_args" placeholder="Enter arguments separated by a comma"/>
         <script src="azahar.js"></script>
-        <p>Status: <span id="status_text">Do not use CIA files, they are unsupported</span></p>
-        <div style="height: 500px; overflow: auto;">Console Log:<br><span id="log_text"></span></div>
+        <p>Status: <span id="status_text">Emulator ready!</span></p>
+        <div><button id="instructions_toggle_button" onclick="ToggleInstructions();">Loading...</button><div div style="max-height: 500px; overflow: auto;" id="instructions_text">
+            <p>
+                CIA files are currently unsupported, please use CXI files and CCI files instead.<br>
+                Arguments:<br>
+                    -s: Use software rendering (default)<br>
+                    -c: Disable fastinterp (use Dyncom)<br>
+                    -v: Print version in console<br>
+                    -t: Enable audio stretching<br>
+                Unimplemented/unfinished arguments:<br>
+                    -f: Fullscreen mode<br>
+                    -i: Install & Run CIA<br>
+                    -w: Use OpenGL rendering<br>
+                    -n: Disable audio emulation<br>
+            </p>
+        </div></div>
+        <div>Console Log <button id="console_toggle_button" onclick="ToggleConsoleLog();">Loading...</button> <div style="height: 500px; overflow: auto;" id="log_text"></div></div>
 		
     </body>
 <script>
 var status_text = document.getElementById("status_text");
 var log_text = document.getElementById("log_text");
+var instructions_text = document.getElementById("instructions_text");
 
 function LoadRom(file_data) {
 	var game_path = "/home/web_user/game.cxi";
-	status_text.innerHTML = "Please wait, your game is being uploaded";
 	console.log("Uploading: ", file_data);
 	FS.writeFile(game_path, new Uint8Array(file_data));
-	status_text.innerHTML = "Finished uploading";
 	var cmd_args = document.getElementById("cmd_args").value.split(/\s+/);
 	if (cmd_args.length === 1 && cmd_args[0].length === 0) {
 		cmd_args.pop();
 	}
 	cmd_args.push(game_path);
-    cmd_args.push("-s"); // force software rendering
 	console.log(cmd_args);
 	callMain(cmd_args);
-	status_text.innerHTML = "";
 }
 
 function ReadFileUpload(e) {
+	status_text.innerHTML = "Please wait, your game is being loaded";
 	const file = e.files[0];
 	const reader = new FileReader();
 	reader.onload = (f) => {
@@ -55,6 +68,7 @@ function ReadFileUpload(e) {
 		//uploadButton.style.backgroundColor = "blue";
 		//uploadButton.style.color = "white";
 		LoadRom(f.target.result);
+        document.getElementById("uploadButton").disabled = true;
 	};
 	
 	if (file !== undefined)
@@ -65,8 +79,42 @@ function ReadFileUpload(e) {
 	}
 }
 
+var is_console_shown = true;
+function ToggleConsoleLog() {
+    if (is_console_shown) {
+        log_text.style.display = "none";
+        document.getElementById("console_toggle_button").innerHTML = "Show console";
+    } else {
+        log_text.style.display = "block";
+        document.getElementById("console_toggle_button").innerHTML = "Hide console";
+    }
+    is_console_shown = !is_console_shown;
+}
+ToggleConsoleLog();
+
+function AddNewLogEntry(entry) {
+    const node = document.createElement("div");
+    const textnode = document.createTextNode(entry);
+    node.appendChild(textnode);
+    log_text.prepend(node);
+}
+
 document.getElementById("fileUpload").addEventListener("change", (e) => {
 	ReadFileUpload(e.target);
 }, false);
+
+var is_instructions_shown = true;
+function ToggleInstructions() {
+    if (is_instructions_shown) {
+        instructions_text.style.display = "none";
+        document.getElementById("instructions_toggle_button").innerHTML = "Show Help";
+    } else {
+        instructions_text.style.display = "block";
+        document.getElementById("instructions_toggle_button").innerHTML = "Hide Help";
+    }
+    is_instructions_shown = !is_instructions_shown;
+    
+}
+ToggleInstructions();
 </script>
 </html>

@@ -14,19 +14,26 @@
         </script>
 		<button class="sendButton" id="uploadButton" onclick="document.getElementById('fileUpload').click();">Load Rom</button>
 		<input type="file" id='fileUpload' class="sendButton" style="visibility: hidden; display: none;"/>
-		<input type="text" id="cmd_args" placeholder="Enter arguments separated by a comma"/>
+		<input type="text" id="cmd_args" placeholder="Enter arguments separated by spaces"/><br>
+		<input type="file" id='save_upload' style="visibility: hidden; display: none;"/>
+		<button id="upload_save_button" onclick="document.getElementById('save_upload').click();">Upload Save Data File</button>
+		<button id="download_save_button" onclick="DownloadCurrentSaveFiles();">Download Current Save Data Files</button>
+        <input type="checkbox" id="dl_save_exit_checkbox" checked="true">
+        <label for="dl_save_exit_checkbox">Download Save Files On Exit</label><br>
         <script src="azahar.js"></script>
         <p>Status: <span id="status_text">Emulator ready!</span></p>
         <div><button id="instructions_toggle_button" onclick="ToggleInstructions();">Loading...</button><div div style="max-height: 500px; overflow: auto;" id="instructions_text">
             <p>
                 CIA files are currently unsupported, please use CXI files and CCI files instead.<br>
+                Save data naming scheme: TitleName_TitleID_SaveDataFile. Example: Tomodachi Life_000400000008c300_savdataArc.txt<br>
+                 - If you need to add an underscore in the save filename, precede each inner-filename underscore with a \ (backslash)<br>
                 Arguments:<br>
-                    -s: Use software rendering (default)<br>
+                    -s: Use software rendering<br>
                     -c: Disable fastinterp (use Dyncom)<br>
                     -v: Print version in console<br>
                     -t: Enable audio stretching<br>
                     -u: Underclock CPU to 10%<br>
-                    -w: Use OpenGL rendering (buggy)<br>
+                    -w: Use OpenGL rendering (default, buggy)<br>
                 Unimplemented/unfinished arguments:<br>
                     -f: Fullscreen mode<br>
                     -i: Install & Run CIA<br>
@@ -37,9 +44,17 @@
 		
     </body>
 <script>
+// TEMPORARY FIX FOR FAST KEY LOCKUP
+//window.addEventListener('keydown', function(event) {
+//    if (event.repeat) {
+//        event.stopImmediatePropagation();
+//    }
+//}, true); didn'twork.........
 var status_text = document.getElementById("status_text");
 var log_text = document.getElementById("log_text");
 var instructions_text = document.getElementById("instructions_text");
+var last_game_ran_id = null;
+var last_title_name = null;
 
 function LoadRom(file_data) {
 	var game_path = "/home/web_user/game.cxi";
@@ -54,24 +69,10 @@ function LoadRom(file_data) {
 	callMain(cmd_args);
 }
 
-function ReadFileUpload(e) {
-	status_text.innerHTML = "Please wait, your game is being loaded";
+function ReadFileUpload(e, cb) {
 	const file = e.files[0];
 	const reader = new FileReader();
-	reader.onload = (f) => {
-		//let maxSize = 2**21;
-		//const convToMb = e => Math.floor(Number(e)/100000)/10;
-		//if (byteSize(f.target.result) > maxSize) {
-		//	alert("Error: File size is greater than max (" + convToMb(maxSize) + "mb). String Encoded Size: " + convToMb(byteSize(f.target.result)) + "mb");
-		//	return;
-		//}
-		//currentUpload = btoa(file.name) + "%" + f.target.result;
-		//uploadButton.style.backgroundColor = "blue";
-		//uploadButton.style.color = "white";
-		LoadRom(f.target.result);
-        document.getElementById("uploadButton").disabled = true;
-	};
-	
+	reader.onload = cb;
 	if (file !== undefined)
 		reader.readAsArrayBuffer(file);
 	else {
@@ -100,9 +101,178 @@ function AddNewLogEntry(entry) {
     log_text.prepend(node);
 }
 
+var filter_rom_extensions = ["cia"];
+
 document.getElementById("fileUpload").addEventListener("change", (e) => {
-	ReadFileUpload(e.target);
+    // filter these file types:
+    let extension = document.getElementById("fileUpload").value.split(".").pop();
+    if (filter_rom_extensions.includes(extension.toLowerCase())) {
+        status_text.innerHTML = extension + " ROM extension type is unsupported";
+        if (extension == "cia") {
+            status_text.innerHTML += " (please use CXI or CCI ROM file instead)";
+        }
+        return;
+    }
+    status_text.innerHTML = "Please wait, your game is being loaded";
+	ReadFileUpload(e.target, (f) => {
+		LoadRom(f.target.result);
+        document.getElementById("uploadButton").disabled = true;
+	});
 }, false);
+
+const save_data_mount_default = "/home/web_user/.local/share/azahar-emu/sdmc/Nintendo 3DS/00000000000000000000000000000000/00000000000000000000000000000000/";
+let cur_save_data_mount = save_data_mount_default;
+let should_dl_save_on_unload = () => {
+    return document.getElementById("dl_save_exit_checkbox").checked;
+};
+
+
+function VerifyTID(tid) {
+    if (tid.length != 16) {
+        throw "Title ID is not correct size";
+    }
+    let check_char_hex = (c) => {
+        return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+    };
+    for (let i = 0; i < tid.length; i++) {
+        if (!check_char_hex(tid[i])) {
+            throw "Title ID contains invalid characters";
+        }
+    }
+}
+
+function MakeSaveDirPathFromTID(mount, tid) {
+    VerifyTID(tid);
+    let tid_hi = tid.substring(0, 8),
+        tid_lo = tid.substring(8);
+    
+    return mount + "title/" + tid_hi + "/" + tid_lo + "/data/00000001/";
+}
+
+document.getElementById("save_upload").addEventListener("change", (e) => {
+    status_text.innerHTML = "Uploading save data...";
+	ReadFileUpload(e.target, (f) => {
+        let parse_save_data_destination = (filename) => {
+            // match all _ without an \ before it
+            let file_info = filename.split(/(?<!\\)_/g);
+            
+            let title_name;
+            let title_id;
+            let file_name;
+            
+            if (file_info.length === 3) {
+                title_name = file_info[0];
+                title_id = file_info[1];
+                file_name = file_info[2];
+            } else if (file_info.length === 2) {
+                title_name = "";
+                title_id = file_info[0];
+                file_name = file_info[1];
+            } else {
+                throw "Could not verify save filename (Incorrect name style, check help for more info)";
+            }
+            
+            try {
+                VerifyTID(title_id);
+            } catch (e) {
+                throw "Could not verify save filename (" + e + ")";
+            }
+            
+            return {
+                filename: file_name,
+                filepath: MakeSaveDirPathFromTID(cur_save_data_mount, title_id),
+                titlename: title_name,
+                titleid: title_id,
+            }
+        };
+        let upload_filename = document.getElementById("save_upload").value.split("\\").pop();
+        let destination;
+        try {
+            destination = parse_save_data_destination(upload_filename);
+        } catch (e) {
+            status_text.innerHTML = "Could not upload save data: " + e;
+            return;
+        }
+        // Tomodachi Life_000400000008c300_savdataArc.txt
+        FS.mkdirTree(destination.filepath);
+		FS.writeFile(destination.filepath + destination.filename, new Uint8Array(f.target.result));
+        let fmt_game_title;
+        if (destination.titlename !== "") {
+            fmt_game_title = destination.titlename;
+        } else {
+            fmt_game_title = destination.titleid;
+        }
+        status_text.innerHTML = "Uploaded save data for " + fmt_game_title;
+	});
+}, false);
+
+function DownloadFile(fileName, fileContent) {
+    try {
+        // Create a Blob object with the file content
+        const blob = new Blob([fileContent], { type: 'text/plain' });
+
+        // Create a temporary link element
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = fileName;
+
+        // Programmatically click the link to trigger the download
+        link.click();
+
+        // Clean up the URL object
+        URL.revokeObjectURL(link.href);
+    } catch {
+        status_text.innerHTML = "Error: save data does not exist";
+    }
+}
+
+function DownloadCurrentSaveFiles() {
+    if (last_game_ran_id === null) {
+        status_text.innerHTML = "Unable to download save data: could not detect last running game id";
+        return;
+    }
+    let title_id = last_game_ran_id;
+    let title_name = last_title_name;
+    try {
+        let save_dir_elements;
+        try {
+            save_dir_elements = FS.readdir(MakeSaveDirPathFromTID(cur_save_data_mount, title_id));
+        } catch (e) {
+            throw e.message;
+        }
+        let format_inner_name = (name) => {
+            let out = "";
+            for (let i = 0; i < name.length; i++) {
+                if (name[i] == '_') {
+                    out += "\\";
+                }
+                out += name[i];
+            }
+            return out;
+        };
+        for (let i = 0; i < save_dir_elements.length; i++) {
+            if (save_dir_elements[i] === "." || save_dir_elements[i] === "..") {
+                continue;
+            }
+            let full_path = MakeSaveDirPathFromTID(cur_save_data_mount, title_id) + save_dir_elements[i];
+            let download_file_name = "";
+            if (last_title_name !== null && last_title_name.length !== 0) {
+                download_file_name += format_inner_name(last_title_name) + "_";
+            }
+            download_file_name += title_id + "_" + save_dir_elements[i];
+            DownloadFile(download_file_name, FS.readFile(full_path));
+        }
+    } catch (e) {
+        status_text.innerHTML = "Unable to download save data for " + title_id + ": " + e;
+    }
+}
+
+window.addEventListener("beforeunload", (e) => {
+    if (should_dl_save_on_unload() && last_game_ran_id !== null) {
+        DownloadCurrentSaveFiles();
+    }
+    SaveFrontendSettings();
+});
 
 var is_instructions_shown = true;
 function ToggleInstructions() {
@@ -117,5 +287,67 @@ function ToggleInstructions() {
     
 }
 ToggleInstructions();
+
+function SetCookie(cname, cvalue, exdays) {
+	const d = new Date();
+	d.setTime(d.getTime() + (exdays*24*60*60*1000));
+	let expires = "expires="+ d.toUTCString();
+	document.cookie = cname + "=" + cvalue + ";" + expires + ";path=/";
+}
+
+function GetCookie(cname) {
+	let name = cname + "=";
+	let decodedCookie = decodeURIComponent(document.cookie);
+	let ca = decodedCookie.split(';');
+	for(let i = 0; i < ca.length; i++) {
+	  let c = ca[i];
+	  while (c.charAt(0) == ' ') {
+		c = c.substring(1);
+	  }
+	  if (c.indexOf(name) == 0) {
+		return c.substring(name.length, c.length);
+	  }
+	}
+	return null;
+}
+
+const settings_cookie_name = "opt_front";
+
+function SaveFrontendSettings() {
+    let current_settings = {
+        auto_download_save_data: document.getElementById("dl_save_exit_checkbox").checked,
+    };
+    SetCookie(settings_cookie_name, JSON.stringify(current_settings), 400);
+}
+
+function ApplyFrontendSettings(settings) {
+    document.getElementById("dl_save_exit_checkbox").checked = settings.auto_download_save_data;
+    SaveFrontendSettings();
+}
+
+function ApplyDefaultFrontendSettings() {
+    let default_settings = {
+        auto_download_save_data: true,
+    };
+    ApplyFrontendSettings(default_settings);
+}
+
+// load frontend settings cookie
+(() => {
+    let cookie_data = GetCookie(settings_cookie_name);
+    if (cookie_data === null) {
+        console.log("cookie does not exist, creating default...");
+        ApplyDefaultFrontendSettings();
+        return;
+    }
+    try {
+        let dec_settings = JSON.parse(cookie_data);
+        ApplyFrontendSettings(dec_settings);
+    } catch {
+        console.error("Settings save is corrupted, using default");
+        ApplyDefaultFrontendSettings();
+    }
+    
+})();
 </script>
 </html>
